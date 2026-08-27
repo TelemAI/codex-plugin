@@ -1,0 +1,53 @@
+# Manifest gate for a plugin installed straight from this repository.
+#
+# There is no build and no bundle here: the host reads these files as they are. So the
+# check is the one that matters for that — every manifest parses and declares what the
+# host requires, and every hook is syntactically valid JavaScript. A hook that throws on
+# load disables the plugin silently for the user, which is the failure worth catching.
+#
+# This file is generated. Edits made here are replaced on the next sync — the
+# change belongs in the repository this one is exported from.
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: every manifest parses and names the plugin
+        run: |
+          node -e '
+            const { readFileSync, existsSync } = require("node:fs")
+            const manifests = process.env.MANIFESTS.split(" ").filter(Boolean)
+            for (const file of manifests) {
+              if (!existsSync(file)) { console.error(`missing manifest: ${file}`); process.exit(1) }
+              const json = JSON.parse(readFileSync(file, "utf8"))
+              if (!json.name && !json.plugins) { console.error(`${file}: no name and no plugins`); process.exit(1) }
+              console.log(`ok: ${file}`)
+            }
+          '
+        env:
+          MANIFESTS: ".codex-plugin/plugin.json .agents/plugins/marketplace.json"
+
+      - name: every hook parses as JavaScript
+        run: |
+          shopt -s nullglob
+          for hook in hooks/*.mjs; do
+            node --check "$hook" && echo "ok: $hook"
+          done
+
+      - name: the skill is present
+        run: |
+          test -f skills/telem/SKILL.md && echo "ok: skills/telem/SKILL.md"

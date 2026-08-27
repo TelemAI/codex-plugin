@@ -1,0 +1,49 @@
+# THIS DOES NOT PUBLISH ANYTHING.
+#
+# Claude Code and Codex read this repository's DEFAULT BRANCH and offer an update only
+# when the plugin manifest's `version` moves. A plugin therefore ships the moment the
+# sync pushes to main — before any tag exists — and no client ever reads a tag or a
+# Release. The guard against shipping code without a bump lives in the sync, which is
+# the only place that knows both halves; it cannot live here, because by the time a tag
+# fires the content is already live.
+#
+# What a tag buys is a Release page: a readable changelog, and a check that the tag
+# agrees with the version already published on the branch. Tag AFTER a sync, never
+# instead of one.
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The version users actually see is the one in the plugin manifest — Claude Code
+      # and Codex read the default branch, never a tag, and a client only offers an
+      # update when that version moves. A tag that disagrees with it produces a release
+      # page claiming one version while every installed client reports another.
+      # `-dry.N` means REHEARSAL: the guard runs, no Release is created.
+      - name: tag matches the plugin manifest
+        id: tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          case "$tag" in
+            *-dry.*) echo "dry=true" >> "$GITHUB_OUTPUT"; tag="${tag%-dry.*}" ;;
+            *)       echo "dry=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          manifest="$(node -p "require('./.codex-plugin/plugin.json').version")"
+          if [ "$tag" != "$manifest" ]; then
+            echo "::error::tag v$tag does not match .codex-plugin/plugin.json $manifest — bump the manifest in the monorepo and re-sync first"
+            exit 1
+          fi
+
+      - name: publish the GitHub Release
+        if: steps.tag.outputs.dry != 'true'
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
